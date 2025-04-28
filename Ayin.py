@@ -1,57 +1,224 @@
-#本程序（即此程序与同目录的的所有文件）均暂不开源（其实是我程序太史山了），如果你未经作者授权看到此条消息请立即退出。                 作者：PAZJ
-import threading
-import hmac
+# 作者：PAZJ
+# coding=utf-8
 import base64
-import time
-import uuid
+import hmac
+import threading
+import tkinter as tk
+from datetime import datetime, timedelta
+from hashlib import sha1
+from tkinter import scrolledtext, messagebox
+from typing import Optional, Tuple, Dict, List
+import torch
+import torch.nn as nn
+import torch.optim as optim
+from openai import OpenAI
+from torch.utils.data import Dataset, DataLoader
+from torchaudio import datasets
+from torchvision import transforms
+import numpy as np
 import requests
 import json
 import io
 import logging
 import os
 import glob
-import tkinter as tk
-from datetime import datetime, timedelta
-from typing import Optional, Tuple, Dict, List
-from tkinter import scrolledtext, messagebox
+import uuid
+import time
 from PIL import Image, ImageTk
-from openai import OpenAI
-from hashlib import sha1
 
 # 配置日志记录
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s',
-    filename='ai_assistant.log'
+    filename='model.log'
 )
 logger = logging.getLogger(__name__)
 
 
 def read_api_keys():
-    """从API.key文件中读取API密钥"""
     try:
         with open("API.key", "r") as f:
             lines = [line.strip() for line in f.readlines()]
-
-        if len(lines) < 3:
-            raise ValueError("API.key文件至少会包含3行内容，排列顺序为：1.deep seek的API密钥   2.星火的API签名密钥   3.星火的API访问密钥")
-
+        if len(lines) < 1:
+            raise ValueError("API.key文件至少包含1行内容")
         return {
-            "deepseek_key": lines[0],  # 第1行: DeepSeek API密钥
-            "image_api_key": lines[1],  # 第2行: 图像API密钥
-            "signature_secret": lines[2],  # 第3行: 签名密钥
-            "base_url": "https://api.deepseek.com"  # 固定URL
+            "deepseek_key": lines[0],
+
         }
     except Exception as e:
         logger.error(f"读取API密钥失败: {str(e)}")
         raise
 
 
+GAN_CONFIG = {
+    "image_size": (1080, 1980),
+    "latent_dim": 256,
+    "batch_size": 4,
+    "device": "cuda" if torch.cuda.is_available() else "cpu",
+    "current_epoch": 0,
+    "is_training": False,
+    "checkpoint_dir": "gan_models"
+}
+
+
+# 生成器模型
+class Generator(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.main = nn.Sequential(
+            nn.ConvTranspose2d(GAN_CONFIG["latent_dim"], 1024, 4, 1, 0, bias=False),
+            nn.BatchNorm2d(1024),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(1024, 512, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(512),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(512, 256, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(256, 128, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.ReLU(True),
+            nn.ConvTranspose2d(128, 3, 4, 2, 1, bias=False),
+            nn.Tanh()
+        )
+
+    def forward(self, input):
+        return self.main(input)
+
+
+# 判别器模型
+class Discriminator(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.main = nn.Sequential(
+            nn.Conv2d(3, 64, 4, 2, 1, bias=False),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(64, 128, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(128),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(128, 256, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(256),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(256, 512, 4, 2, 1, bias=False),
+            nn.BatchNorm2d(512),
+            nn.LeakyReLU(0.2, inplace=True),
+            nn.Conv2d(512, 1, 4, 1, 0, bias=False),
+            nn.Sigmoid()
+        )
+
+    def forward(self, input):
+        return self.main(input).view(-1)
+
+
+def train_gan(total_epochs):
+    try:
+        netG = Generator().to(GAN_CONFIG["device"])
+        netD = Discriminator().to(GAN_CONFIG["device"])
+
+        # 加载检查点
+        if os.path.exists(f"{GAN_CONFIG['checkpoint_dir']}/latest.pth"):
+            checkpoint = torch.load(f"{GAN_CONFIG['checkpoint_dir']}/latest.pth")
+            netG.load_state_dict(checkpoint['generator'])
+            netD.load_state_dict(checkpoint['discriminator'])
+            GAN_CONFIG["current_epoch"] = checkpoint['epoch']
+
+        optimizerG = optim.Adam(netG.parameters(), lr=0.0002, betas=(0.5, 0.999))
+        optimizerD = optim.Adam(netD.parameters(), lr=0.0002, betas=(0.5, 0.999))
+        criterion = nn.BCELoss()
+
+        GAN_CONFIG["is_training"] = True
+        dataset = datasets.FakeData(transform=transforms.Compose([
+            transforms.Resize((256, 256)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))
+        ]))
+        dataloader = DataLoader(dataset, batch_size=GAN_CONFIG["batch_size"], shuffle=True)
+
+        for epoch in range(GAN_CONFIG["current_epoch"], total_epochs):
+            if not GAN_CONFIG["is_training"]: break
+
+            for i, (real_images, _) in enumerate(dataloader):
+                real_images = real_images.to(GAN_CONFIG["device"])
+                batch_size = real_images.size(0)
+
+                # 训练判别器
+                netD.zero_grad()
+                label_real = torch.full((batch_size,), 1.0, device=GAN_CONFIG["device"])
+                output = netD(real_images)
+                errD_real = criterion(output, label_real)
+
+                noise = torch.randn(batch_size, GAN_CONFIG["latent_dim"], 1, 1, device=GAN_CONFIG["device"])
+                fake_images = netG(noise)
+                label_fake = torch.full((batch_size,), 0.0, device=GAN_CONFIG["device"])
+                output = netD(fake_images.detach())
+                errD_fake = criterion(output, label_fake)
+
+                errD = errD_real + errD_fake
+                errD.backward()
+                optimizerD.step()
+
+                # 训练生成器
+                netG.zero_grad()
+                label_g = torch.full((batch_size,), 1.0, device=GAN_CONFIG["device"])
+                output = netD(fake_images)
+                errG = criterion(output, label_g)
+                errG.backward()
+                optimizerG.step()
+
+            # 更新界面
+            root.after(0, lambda: output_box.insert(tk.END,
+                                                    f"Epoch [{epoch + 1}/{total_epochs}] 完成 | D Loss: {errD.item():.4f} | G Loss: {errG.item():.4f}\n"))
+
+            # 保存模型
+            if (epoch + 1) % 100 == 0:
+                torch.save({
+                    'epoch': epoch + 1,
+                    'generator': netG.state_dict(),
+                    'discriminator': netD.state_dict()
+                }, f"{GAN_CONFIG['checkpoint_dir']}/latest.pth")
+
+        GAN_CONFIG["is_training"] = False
+    except Exception as e:
+        logger.error(f"GAN训练错误: {str(e)}")
+        root.after(0, lambda: output_box.insert(tk.END, f"训练错误: {str(e)}\n"))
+
+
+def process_image_generation(prompt: str):
+    try:
+        netG = Generator().to(GAN_CONFIG["device"])
+        checkpoint = torch.load(f"{GAN_CONFIG['checkpoint_dir']}/latest.pth")
+        netG.load_state_dict(checkpoint['generator'])
+
+        with torch.no_grad():
+            noise = torch.randn(1, GAN_CONFIG["latent_dim"], 1, 1, device=GAN_CONFIG["device"])
+            fake_image = netG(noise).cpu().squeeze()
+            img = transforms.ToPILImage()(fake_image)
+            img = img.resize((1980, 1080), Image.Resampling.LANCZOS)
+
+            img_byte_arr = io.BytesIO()
+            img.save(img_byte_arr, format='PNG')
+            img_data = img_byte_arr.getvalue()
+
+            # 显示图像
+            img_tk = ImageTk.PhotoImage(img)
+            canvas.itemconfig(image_tag, image=img_tk)
+            canvas.image = img_tk
+
+            # 保存文件
+            save_path = f"{IMAGE_SAVE_DIR}/gan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+            with open(save_path, 'wb') as f:
+                f.write(img_data)
+            return f"图像已生成并保存至: {save_path}"
+    except Exception as e:
+        logger.error(f"图像生成失败: {str(e)}")
+        return f"生成失败: {str(e)}"
+
+
 # 清理20天前的日志文件
 def clean_old_logs(days_to_keep=20):
     """清理指定天数前的日志文件"""
     try:
-        log_files = glob.glob('ai_assistant.log*')  # 获取所有日志文件
+        log_files = glob.glob('model log.log')  # 获取所有日志文件
 
         for log_file in log_files:
             # 获取文件修改时间
@@ -84,7 +251,6 @@ except Exception as e:
 try:
     client = OpenAI(
         api_key=api_keys["deepseek_key"],
-        base_url=api_keys["base_url"],
         timeout=30  # 设置超时时间
     )
 except Exception as e:
@@ -118,90 +284,9 @@ error_solutions: Dict[int, str] = {
     503: "原因：服务器负载过高\n解决方法：请稍后重试您的请求"
 }
 
-# 文生图API配置
-API_KEY = api_keys["image_api_key"]
-API_SECRET = api_keys["signature_secret"]  # 签名密钥
-API_URL = "https://www.liblib.art/modelinfo/f8b990b20cb943e3aa0e96f34099d794?versionUuid=21df5d84cca74f7a885ba672b5a80d19"
-REQUEST_TIMEOUT = 30  # 请求超时时间(秒)
+
 IMAGE_SAVE_DIR = "generated_images"  # 图片保存目录
 
-
-class ImageGenerationError(Exception):
-    """自定义图像生成异常"""
-    pass
-
-
-def make_sign(uri: str = "/api/genImg") -> Tuple[str, str, str]:
-    """生成签名"""
-    try:
-        timestamp = str(int(time.time() * 1000))
-        signature_nonce = str(uuid.uuid4())
-        content = '&'.join((uri, timestamp, signature_nonce))
-        digest = hmac.new(API_SECRET.encode(), content.encode(), sha1).digest()
-        sign = base64.urlsafe_b64encode(digest).rstrip(b'=').decode()
-        return sign, timestamp, signature_nonce
-    except Exception as e:
-        logger.error(f"生成签名失败: {str(e)}")
-        raise
-
-
-def generate_image(prompt: str, model: str = "F.1") -> str:
-    """调用文生图API生成图像"""
-    try:
-        # 生成签名
-        sign, timestamp, nonce = make_sign()
-
-        headers = {
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json",
-            "Signature": sign,
-            "Timestamp": timestamp,
-            "SignatureNonce": nonce
-        }
-
-        data = {
-            "prompt": prompt,
-            "model": model
-        }
-
-        logger.info(f"发送图像生成请求，提示词: {prompt}")
-        response = requests.post(
-            API_URL,
-            headers=headers,
-            json=data,
-            timeout=REQUEST_TIMEOUT
-        )
-        response.raise_for_status()
-
-        response_data = response.json()
-        logger.debug(f"API响应: {response_data}")
-
-        if not isinstance(response_data, dict):
-            raise ImageGenerationError("API返回了无效的响应格式")
-
-        image_url = response_data.get("image_url")
-        if not image_url or not isinstance(image_url, str):
-            raise ImageGenerationError("API响应中未包含有效的图像URL")
-
-        return image_url
-
-    except requests.exceptions.RequestException as e:
-        status_code = getattr(e.response, 'status_code', 'N/A')
-        error_msg = f"API请求失败: {str(e)} (状态码: {status_code})"
-        logger.error(f"{error_msg}\n响应内容: {e.response.text if hasattr(e, 'response') else '无响应'}")
-        return error_msg
-    except json.JSONDecodeError:
-        error_msg = "API返回了无效的JSON响应"
-        logger.error(error_msg)
-        return error_msg
-    except ImageGenerationError as e:
-        error_msg = f"图像生成错误: {str(e)}"
-        logger.error(error_msg)
-        return error_msg
-    except Exception as e:
-        error_msg = f"未知错误: {str(e)}"
-        logger.error(error_msg)
-        return error_msg
 
 
 def show_image_in_ui(img_data: bytes) -> str:
@@ -274,57 +359,6 @@ def safe_update_output(text: str):
         logger.error(f"更新输出框失败: {str(e)}")
 
 
-def process_image_generation(prompt: str, retries: int = 2):
-    """处理图像生成流程"""
-    try:
-        for attempt in range(retries + 1):
-            image_url = generate_image(prompt)
-            logger.info(f"第{attempt + 1}次尝试，图像生成结果: {image_url}")
-
-            if not isinstance(image_url, str):
-                if attempt == retries:
-                    safe_update_output("图像生成失败: 无效的响应")
-                    return
-                continue
-
-            if image_url.startswith("http"):
-                try:
-                    # 下载图片
-                    response = requests.get(image_url, timeout=REQUEST_TIMEOUT)
-                    response.raise_for_status()
-                    img_data = response.content
-
-                    # 保存图片到本地
-                    saved_path = save_image_to_file(img_data, prompt)
-                    if saved_path.startswith(IMAGE_SAVE_DIR):
-                        save_msg = f"图片已保存到: {saved_path}"
-                    else:
-                        save_msg = saved_path  # 错误信息
-
-                    # 在UI中显示
-                    display_result = show_image_in_ui(img_data)
-
-                    safe_update_output(
-                        f"图像生成成功！\n"
-                        f"{display_result}\n"
-                        f"{save_msg}\n"
-                        f"提示词: {prompt}"
-                    )
-                    return
-                except Exception as e:
-                    if attempt == retries:
-                        error_msg = f"图像下载失败: {str(e)}"
-                        safe_update_output(error_msg)
-                        logger.error(error_msg)
-                    continue
-            else:
-                if attempt == retries:
-                    safe_update_output(f"图像生成失败: {image_url}")
-                continue
-
-    except Exception as e:
-        safe_update_output(f"处理图像生成时发生错误: {str(e)}")
-        logger.error(f"处理图像生成时发生错误: {str(e)}")
 
 
 def fetch_assistant_reply(user_input: str):
@@ -354,62 +388,63 @@ def fetch_assistant_reply(user_input: str):
         logger.error(f"获取助手回复失败: {str(e)}")
 
 
-def send_message(event=None):
-    """发送消息处理函数"""
-    user_input = input_box.get("1.0", tk.END).strip()
-    input_box.delete("1.0", tk.END)
-
-    if not user_input:
-        return
-
-    messages.append({"role": "user", "content": user_input})
-    output_box.insert(tk.END, f"你：{user_input}\n")
-    output_box.see(tk.END)
-
-    # 检查特殊命令
-    if any(cmd in user_input.lower() for cmd in ["生成图", "生成图像", "生成图片"]):
-        prompt = user_input.split("]", 1)[-1].strip() if "]" in user_input else user_input.split(" ", 1)[-1].strip()
-        if not prompt:
-            safe_update_output("请提供图像描述")
-            return
-
-        safe_update_output("正在生成图像...")
-        threading.Thread(
-            target=process_image_generation,
-            args=(prompt,),
-            daemon=True
-        ).start()
-    elif user_input.lower() == "生成签名":
-        try:
-            sign, timestamp, nonce = make_sign()
-            output_box.insert(tk.END, f"签名信息：\n签名: {sign}\n时间戳: {timestamp}\n随机数: {nonce}\n")
-            output_box.see(tk.END)
-        except Exception as e:
-            safe_update_output(f"生成签名失败: {str(e)}")
-    elif user_input.lower() == "生成图片帮助":
-        show_image_help()
-    elif user_input.lower() == "测试图片生成":
-        test_prompt = "a cute cat"  # 简单英文提示
-        safe_update_output(f"测试图片生成，使用提示: {test_prompt}")
-        threading.Thread(
-            target=process_image_generation,
-            args=(test_prompt,),
-            daemon=True
-        ).start()
-    else:
-        safe_update_output("加载中...")
-        threading.Thread(
-            target=fetch_assistant_reply,
-            args=(user_input,),
-            daemon=True
-        ).start()
-
-
 def insert_newline(event=None):
     """插入换行符"""
     input_box.insert(tk.END, "\n")
     return "break"
 
+def send_message(event=None):
+    user_input = input_box.get("1.0", tk.END).strip()
+    input_box.delete("1.0", tk.END)
+
+    if user_input.startswith("GAN训练"):
+        try:
+            _, epoch_str = user_input.split(maxsplit=1)
+            epochs = int(epoch_str)
+            if epochs <= 0:
+                raise ValueError
+            if GAN_CONFIG["is_training"]:
+                safe_update_output("训练已在进行中")
+                return
+            threading.Thread(target=train_gan, args=(epochs,), daemon=True).start()
+            safe_update_output(f"开始GAN训练，总epoch数: {epochs}")
+        except Exception as e:
+            safe_update_output("命令格式错误，正确示例：GAN训练 100")
+    elif user_input == "停止GAN训练":
+        if GAN_CONFIG["is_training"]:
+            GAN_CONFIG["is_training"] = False
+            safe_update_output("已发送停止指令")
+        else:
+            safe_update_output("当前未在训练")
+    elif any(cmd in user_input.lower() for cmd in ["生成图", "生成图像", "生成图片"]):
+        prompt = user_input.split(maxsplit=1)[1].strip() if len(user_input.split()) > 1 else ""
+        if not prompt:
+            safe_update_output("请提供图像描述")
+            return
+        threading.Thread(target=lambda: process_image_generation(prompt)).start()
+    else:
+        # 原有API调用逻辑
+        try:
+            response = client.chat.completions.create(
+                model="deepseek-chat",
+                messages=messages,
+                stream=False,
+                timeout=30
+            )
+            assistant_reply = response.choices[0].message.content
+            messages.append({"role": "assistant", "content": assistant_reply})
+            safe_update_output(assistant_reply)
+        except Exception as e:
+            error_code = getattr(e, "status_code", None)
+            if error_code in error_explanations:
+                explanation = f"错误码 {error_code} - {error_explanations[error_code]}"
+                safe_update_output(explanation)
+                if "详细信息" in user_input or "解决方法" in user_input:
+                    solution = f"错误码 {error_code} - {error_solutions[error_code]}"
+                    safe_update_output(solution)
+            else:
+                safe_update_output(f"错误：{str(e)}")
+            logger.error(f"获取助手回复失败: {str(e)}")
 
 def on_closing():
     """窗口关闭事件处理"""
@@ -437,29 +472,20 @@ except Exception as e:
 
 # 创建输出框和输入框
 output_box = scrolledtext.ScrolledText(
-    root,
-    wrap=tk.WORD,
-    width=100,
-    height=30,
-    bd=0,
-    highlightthickness=0,
-    bg="#2d2d2d",
-    fg="white",
+    root, wrap=tk.WORD, width=100, height=30, bd=0,
+    highlightthickness=0, bg="#2d2d2d", fg="white",
     insertbackground="white"
 )
 canvas.create_window(100, 100, anchor="nw", window=output_box, width=800, height=600)
 
 input_box = tk.Text(
-    root,
-    height=5,
-    width=100,
-    bd=0,
-    highlightthickness=0,
-    bg="#2d2d2d",
-    fg="white",
-    insertbackground="white"
+    root, height=5, width=100, bd=0, highlightthickness=0,
+    bg="#2d2d2d", fg="white", insertbackground="white"
 )
 canvas.create_window(100, 720, anchor="nw", window=input_box, width=800, height=150)
+
+# 图像显示区域
+image_tag = canvas.create_image(1200, 200, anchor="nw")
 
 # 绑定按键事件
 input_box.bind("<Return>", send_message)
