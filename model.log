@@ -1,0 +1,68 @@
+2025-04-24 16:53:41,410 - ERROR - 初始化OpenAI客户端失败: 'base_url'
+2025-04-24 16:54:05,621 - ERROR - 初始化OpenAI客户端失败: 'base_url'
+2025-04-24 16:56:54,227 - ERROR - 初始化OpenAI客户端失败: 'base_url'
+2025-04-27 13:12:42,124 - ERROR - 初始化OpenAI客户端失败: 'base_url'
+2025-04-27 13:13:44,622 - ERROR - 读取API密钥失败: API.key文件至少包含3行内容
+2025-04-27 13:13:44,624 - ERROR - 无法读取API密钥: API.key文件至少包含3行内容
+2025-04-27 13:13:58,142 - ERROR - 初始化OpenAI客户端失败: 'base_url'
+2025-04-27 13:19:43,911 - ERROR - GAN训练错误: module 'torchaudio.datasets' has no attribute 'FakeData'
+2025-04-27 13:21:03,183 - ERROR - GAN训练错误: module 'torchaudio.datasets' has no attribute 'FakeData'
+2025-04-27 13:34:14,440 - INFO - Retrying request to /chat/completions in 0.480651 seconds
+2025-04-27 13:34:35,925 - INFO - Retrying request to /chat/completions in 0.818666 seconds
+2025-04-27 13:34:57,748 - ERROR - 获取助手回复失败: Request timed out.
+2025-06-01 23:29:42,530 - ERROR - 无法读取API密钥: name 'read_api_keys' is not defined
+2025-06-01 23:30:18,253 - ERROR - 无法读取API密钥: name 'read_api_keys' is not defined
+2025-06-01 23:36:45,711 - INFO - Retrying request to /chat/completions in 0.455136 seconds
+2025-06-01 23:37:07,210 - INFO - Retrying request to /chat/completions in 0.755162 seconds
+2025-06-01 23:37:29,017 - ERROR - 获取助手回复失败: Request timed out.
+2025-06-01 23:40:44,120 - INFO - Retrying request to /chat/completions in 0.398445 seconds
+2025-06-01 23:41:05,566 - INFO - Retrying request to /chat/completions in 0.852697 seconds
+2025-06-01 23:41:27,462 - ERROR - 获取助手回复失败: Request timed out.
+2025-06-01 23:57:10,118 - INFO - Retrying request to /chat/completions in 0.459339 seconds
+2025-06-01 23:57:31,653 - INFO - Retrying request to /chat/completions in 0.892295 seconds
+2025-06-01 23:57:53,589 - ERROR - 获取助手回复失败: Request timed out.
+2025-06-15 09:37:18,213 - ERROR - 读取API密钥失败: [Errno 2] No such file or directory: 'API.key'
+2025-06-15 09:37:18,213 - ERROR - 无法读取API密钥: [Errno 2] No such file or directory: 'API.key'
+2025-06-15 09:37:32,564 - ERROR - 无法读取API密钥: name 'read_api_keys' is not defined
+2025-06-15 09:38:40,218 - ERROR - 读取API密钥失败: [Errno 2] No such file or directory: 'API.key'
+2025-06-15 09:38:40,219 - ERROR - 无法读取API密钥: [Errno 2] No such file or directory: 'API.key'
+2025-06-16 20:49:29,162 - INFO - 已删除旧文件: user ax.log (创建于67天前)
+2025-06-16 20:49:29,164 - INFO - 已删除旧文件: user.log (创建于56天前)
+2025-06-16 22:05:04,459 - INFO - 开始扫描文件: Ayin.py
+2025-06-16 22:05:27,108 - ERROR - 文件扫描失败: Cannot connect to host bigfiles.virustotal.com:443 ssl:default [信号灯超时时间已到]
+2025-06-16 22:05:40,582 - INFO - 开始生成图像: 一个女孩...
+2025-06-16 22:07:07,519 - INFO - 开始生成图像: 一个男孩...
+2025-06-16 22:08:18,926 - INFO - 开始生成图像: 一个男孩...
+2025-06-16 22:10:11,950 - INFO - 开始生成图像: a girl...
+2025-06-16 22:11:17,014 - INFO - 开始生成图像: a boy...
+2025-06-16 22:26:03,622 - INFO - 已加载历史对话，共1条记录
+2025-06-16 22:26:23,781 - INFO - 开始生成图像: 一个女孩...
+2025-06-16 22:26:23,794 - INFO - 检测到中文提示词，正在进行翻译...
+2025-06-16 22:26:23,801 - INFO - 正在翻译提示词: 一个女孩
+2025-06-16 22:26:23,802 - ERROR - 翻译失败: 
+
+You tried to access openai.ChatCompletion, but this is no longer supported in openai>=1.0.0 - see the README at https://github.com/openai/openai-python for the API.
+
+You can run `openai migrate` to automatically upgrade your codebase to use the 1.0.0 interface. 
+
+Alternatively, you can pin your installation to the old version, e.g. `pip install openai==0.28`
+
+A detailed migration guide is available here: https://github.com/openai/openai-python/discussions/742
+
+2025-06-16 22:51:45,556 - INFO - 已加载历史对话，共1条记录
+2025-06-16 22:51:59,477 - INFO - 开始生成图像: 女孩...
+2025-06-16 22:51:59,488 - INFO - 检测到中文提示词，正在进行翻译...
+2025-06-16 22:51:59,503 - INFO - 正在翻译提示词: 女孩
+2025-06-16 22:51:59,504 - ERROR - 翻译失败: 
+
+You tried to access openai.ChatCompletion, but this is no longer supported in openai>=1.0.0 - see the README at https://github.com/openai/openai-python for the API.
+
+You can run `openai migrate` to automatically upgrade your codebase to use the 1.0.0 interface. 
+
+Alternatively, you can pin your installation to the old version, e.g. `pip install openai==0.28`
+
+A detailed migration guide is available here: https://github.com/openai/openai-python/discussions/742
+
+2025-06-17 13:31:43,305 - INFO - 已加载历史对话，共1条记录
+2025-06-17 13:31:54,040 - INFO - HTTP Request: POST https://cephalon.cloud/user-center/v1/model/chat/completions "HTTP/1.1 200 OK"
+2025-06-17 13:32:49,182 - INFO - 开始生成图像: 美女...
